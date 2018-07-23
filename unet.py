@@ -1,7 +1,6 @@
 import util as u
 import iou
 
-import sys
 import os
 from os.path import join, isdir
 
@@ -12,13 +11,19 @@ from keras.models import Model
 import numpy as np
 import tensorflow as tf
 
+import argparse
+parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
+parser.add_argument('-n', '--name', dest=name, type=str, default='u-net')
+parser.add_argument('-d', '--dropout', dest=dropout, type=float, default=0.0)
+args = parser.parse_args()
+
 # Load the data and add an axis to the end of y
 # so that it is three-dimensional
 X, y = u.ips()
 y = np.expand_dims(y, axis=3)
 
-# Dropout for the U-Net
-dropout = 0.25
+name = args.name # name of the model
+dropout = args.dropout # dropout to use in the U-Net
 
 # Construct the U-Net
 inputs = Input(X[0].shape)
@@ -81,7 +86,7 @@ def mean_iou(y_true, y_pred):
 # model weights if the mean IoU on the validation set improves
 early_stop = EarlyStopping(patience=5, verbose=1)
 checkpoint = ModelCheckpoint(
-	join('models', sys.argv[1], 'model.h5'),
+	join('models', name, 'model.h5'),
 	monitor='val_mean_iou', mode='max',
 	verbose=1, save_best_only=True)
 
@@ -94,11 +99,11 @@ model.compile(
 
 # Create a directory for the current model
 # sys.argv[1] should be the name of the model being trained
-if not isdir(join('models', sys.argv[1])):
-	os.mkdir(join('models', sys.argv[1]))
+if not isdir(join('models', name)):
+	os.mkdir(join('models', name))
 
 # Save the model architecture to JSON
-with open(join('models', sys.argv[1], 'model.json'), 'w') as f:
+with open(join('models', name, 'model.json'), 'w') as f:
 	f.write(model.to_json())
 
 # Train the model for 25 epochs using a batch size of 64

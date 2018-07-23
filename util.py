@@ -34,13 +34,22 @@ def img_ids(train=True):
 		return _test_lab_ids
 
 """
+Return the filenames for the test dataset (the ones to create a submission for)
+"""
+def test_ids():
+	global _test_unlab_ids
+	if len(_test_unlab_ids) > 0: return _test_unlab_ids
+	_test_unlab_ids = os.listdir(join(_test_unlab_dir, _img_folder))
+	return _test_unlab_ids
+
+"""
 Return the correct image directory
 :param train: whether or not to return the training dataset directory
 :param mask: whether or not to return the mask directory
 """
 def _get_dir(train, mask):
 	init_dir, ext_dir = _train_dir, _img_folder
-	if not train: init_dir = _test_dir
+	if not train: init_dir = _test_lab_dir
 	if mask: ext_dir = _mask_folder
 	return join(init_dir, ext_dir)
 
@@ -66,6 +75,14 @@ def _imgs_or_masks(train, mask):
 	ids = img_ids(train) # get the image filenames
 	d = _get_dir(train, mask) # get the correct directory to look in
 	return np.array([_read_img(join(d, i)) for i in ids])	
+
+"""
+Return an array of all the unlabeled test images
+"""
+def test_imgs():
+	ids = test_ids() # get the image filenames
+	d = join(_test_unlab_dir, _img_folder) # get the correct directory
+	return np.array([_read_img(join(d, i)) for i in ids])
 
 """
 Return the training or testing images
@@ -138,5 +155,26 @@ def disp_ip(img, mask):
 
 	a[1].imshow(mask, 'gray')
 	a[1].set_title('Mask')
+
+	plt.show()	
+
+"""
+Display an image, mask, and predicted mask triplet
+:param img: original image
+:param mask: ground truth mask
+:param pred: predicted mask
+"""
+def disp_imp(img, mask, pred):
+	import matplotlib.pyplot as plt
+	_, a = plt.subplots(1, 3)
+
+	a[0].imshow(img, 'gray')
+	a[0].set_title('Image')
+
+	a[1].imshow(mask, 'gray')
+	a[1].set_title('Mask')
+
+	a[2].imshow(pred, 'gray')
+	a[2].set_title('Pred')
 
 	plt.show()	
