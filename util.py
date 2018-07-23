@@ -8,7 +8,7 @@ import numpy as np
 _data_dir = 'data'
 _train_dir = join(_data_dir, 'train')
 _test_lab_dir = join(_data_dir, 'test-labeled')
-_test_unlab_dir = join(_data_dir, 'test_unlabeled')
+_test_unlab_dir = join(_data_dir, 'test-unlabeled')
 
 _img_folder = 'images'
 _mask_folder = 'masks'
@@ -59,44 +59,75 @@ Divide by the maximum so that image is in range [0, 1].
 Don't divide if the image is all 0's (black).
 
 :param f: filename of the image
+:param gray: whether or not to return grayscale
 """
-def _read_img(f):
+def _read_img(f, gray=True):
 	img = resize(imread(f), (128, 128), mode='constant', preserve_range=True)
-	if img.max() == 0:
-		return img
+	if gray: img = img[:,:,0]
+	if img.max() == 0: return img
 	return img/float(img.max())
 
 """
 Return an array of all images or masks in the given dataset
 :param train: whether or not to return images from the training dataset
 :param mask: whether or not to return the masks from the given dataset
+:param gray: whether or not to return grayscale
 """
-def _imgs_or_masks(train, mask):
+def _imgs_or_masks(train, mask, gray=True):
 	ids = img_ids(train) # get the image filenames
 	d = _get_dir(train, mask) # get the correct directory to look in
-	return np.array([_read_img(join(d, i)) for i in ids])	
+	return np.array([_read_img(join(d, i), gray) for i in ids])
+
+"""
+Return an image or mask for the given id
+:param img_id: the id of the image to return
+:param train: which dataset to read from
+:param mask: whether or not read a mask
+"""
+def _img_or_mask(img_id, train, mask):
+	d = _get_dir(train, mask)
+	return _read_img(join(d, img_id))
+
+"""
+Return an image for the given id
+:param img_id: id of the image to load
+:param train: which dataset it's in
+"""
+def img_by_id(img_id, train=True):
+	return _img_or_mask(img_id, train, False)
+
+"""
+Return a mask for the given id
+:param img_id: the id of the mask to load
+:param train: which dataset to use
+"""
+def mask_by_id(img_id, train=True):
+	return _img_or_mask(img_id, train, True)
 
 """
 Return an array of all the unlabeled test images
+:param gray: whether or not to return grayscale
 """
-def test_imgs():
+def test_imgs(gray=True):
 	ids = test_ids() # get the image filenames
 	d = join(_test_unlab_dir, _img_folder) # get the correct directory
-	return np.array([_read_img(join(d, i)) for i in ids])
+	return np.array([_read_img(join(d, i), gray) for i in ids])
 
 """
 Return the training or testing images
 :param train: whether or not to return images from the training dataset
+:param gray: whether or not to return grayscale
 """
-def imgs(train=True):
-	return _imgs_or_masks(train, False)
+def imgs(train=True, gray=True):
+	return _imgs_or_masks(train, False, gray)
 
 """
 Return the training or testing masks
 :param train: whether or not to return masks from the training dataset
+:param gray: whether or not to return grayscale
 """
-def masks(train=True):
-	return _imgs_or_masks(train, True)
+def masks(train=True, gray=True):
+	return _imgs_or_masks(train, True, gray)
 
 """
 Return the images and masks for the given dataset
@@ -104,6 +135,15 @@ Return the images and masks for the given dataset
 """
 def ips(train=True):
 	return imgs(train), masks(train).astype(np.uint8)
+
+"""
+Return a random unlabeled test image
+"""
+def rand_test_img():
+	ids = test_ids()
+	img_id = np.random.choice(ids)
+	d = join(_test_unlab_dir, _img_folder)
+	return _read_img(join(d, img_id))
 
 """
 Return a random image or mask, depending on parameters
