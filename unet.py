@@ -13,8 +13,8 @@ import tensorflow as tf
 
 import argparse
 parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
-parser.add_argument('-n', '--name', dest=name, type=str, default='u-net')
-parser.add_argument('-d', '--dropout', dest=dropout, type=float, default=0.0)
+parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
+parser.add_argument('-d', '--dropout', dest='dropout', type=float, default=0.0)
 args = parser.parse_args()
 
 # Load the data and add an axis to the end of y
