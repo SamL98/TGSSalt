@@ -17,6 +17,19 @@ _train_ids = []
 _test_lab_ids = []
 _test_unlab_ids = []
 
+_gray = True
+_cs = False
+
+def set_gray(gray):
+	global _gray
+	_gray = gray
+
+def set_cs(cs):
+	global _cs
+
+	_cs = cs
+	if _cs: set_gray(False)
+
 """
 Return the filenames for the given dataset
 :param train: whether or not to use the training dataset
@@ -59,24 +72,47 @@ Divide by the maximum so that image is in range [0, 1].
 Don't divide if the image is all 0's (black).
 
 :param f: filename of the image
-:param gray: whether or not to return grayscale
 """
-def _read_img(f, gray=True):
+def _read_img(f):
+	global _gray, _cs
+
+	# read the image and resize it to a size the U-Net can deal with
 	img = resize(imread(f), (128, 128), mode='constant', preserve_range=True)
-	if gray: img = img[:,:,0]
-	if img.max() == 0: return img
-	return img/float(img.max())
+
+	# return if the image 2d (i.e. it is a mask)
+	if len(img.shape) == 2: return img
+
+	# if we want either gray or cumsum-concat images,
+	# get the first color channel (all three are them same)
+	if (_gray or _cs): img = img[:,:,0]
+
+	# if the image is not blank, divide by it's maximum (either 255 or 65535)
+	if img.max() > 0.0: img /= float(img.max())
+
+	# at this point, return if we don't want cumsum-concat
+	if not _cs: return img
+
+	b = (128-101)//2 # border of the image after resize to 128x128
+
+	# not sure how this helps but people on Kaggle are doing it
+	img_csum = (img - img[b:-b, b:-b].mean()).cumsum(axis=0)
+	img_csum -= img_csum[b:-b, b:-b].mean()
+	img_csum /= max(1e-3, img_csum[b:-b, b:-b].std())
+
+	# concatenate the cumsum as a second channel
+	img = img[:,:,np.newaxis]
+	img_csum = img_csum[:,:,np.newaxis]
+	return np.concatenate((img, img_csum), axis=2)
 
 """
 Return an array of all images or masks in the given dataset
 :param train: whether or not to return images from the training dataset
 :param mask: whether or not to return the masks from the given dataset
-:param gray: whether or not to return grayscale
 """
-def _imgs_or_masks(train, mask, gray=True):
+def _imgs_or_masks(train, mask):
 	ids = img_ids(train) # get the image filenames
 	d = _get_dir(train, mask) # get the correct directory to look in
-	return np.array([_read_img(join(d, i), gray) for i in ids])
+	return np.array([_read_img(join(d, i)) for i in ids])
 
 """
 Return an image or mask for the given id
@@ -106,28 +142,27 @@ def mask_by_id(img_id, train=True):
 
 """
 Return an array of all the unlabeled test images
-:param gray: whether or not to return grayscale
 """
-def test_imgs(gray=True):
+def test_imgs():
 	ids = test_ids() # get the image filenames
 	d = join(_test_unlab_dir, _img_folder) # get the correct directory
-	return np.array([_read_img(join(d, i), gray) for i in ids])
+	return np.array([_read_img(join(d, i)) for i in ids])
 
 """
 Return the training or testing images
 :param train: whether or not to return images from the training dataset
 :param gray: whether or not to return grayscale
 """
-def imgs(train=True, gray=True):
-	return _imgs_or_masks(train, False, gray)
+def imgs(train=True):
+	return _imgs_or_masks(train, False)
 
 """
 Return the training or testing masks
 :param train: whether or not to return masks from the training dataset
 :param gray: whether or not to return grayscale
 """
-def masks(train=True, gray=True):
-	return _imgs_or_masks(train, True, gray)
+def masks(train=True):
+	return _imgs_or_masks(train, True)
 
 """
 Return the images and masks for the given dataset

@@ -39,8 +39,7 @@ Perform RLE encoding on an image
 :param x: the image to encode
 """
 def rle_encoding(x):
-	x = label(x)
-	return [rle_encoding_for_comp(x == i) for i in range(1, x.max()+1)]
+	return [rle_encoding_for_comp(x)]
 
 # load the unlabeled test images
 X = u.test_imgs()

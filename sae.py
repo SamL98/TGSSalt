@@ -15,9 +15,14 @@ import argparse
 parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
 parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
 parser.add_argument('-d', '--dropout', dest='dropout', type=float, default=0.0)
+parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
+parser.add_argument('-g', '--gray', dest='gray', action='store_true')
 args = parser.parse_args()
 
-X = test_imgs()
+u.set_gray(args.gray)
+u.set_cs(args.cs)
+
+X = u.test_imgs()
 if len(X[0].shape) == 2:
 	X = np.expand_dims(X, axis=3)
 print(X.shape)
@@ -71,7 +76,7 @@ u9 = concatenate([u9, c1], axis=3)
 c9 = Conv2D(8, (3, 3), activation='relu', padding='same') (u9)
 c9 = Conv2D(8, (3, 3), activation='relu', padding='same') (c9)
 
-outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)
+outputs = Conv2D((X[0].shape)[2], (1, 1), activation='sigmoid') (c9)
 model = Model(inputs=[inputs], outputs=[outputs])
 
 # Callbacks for early stopping and saving

@@ -15,12 +15,19 @@ import argparse
 parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
 parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
 parser.add_argument('-d', '--dropout', dest='dropout', type=float, default=0.0)
+parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
+parser.add_argument('-g', '--gray', dest='gray', action='store_true')
+parser.add_argument('-nm', '--norm', dest='normalize', action='store_true')
 args = parser.parse_args()
+
+u.set_gray(args.gray)
+u.set_cs(args.cs)
 
 # Load the data and add an axis to the end of y
 # so that it is three-dimensional
 X, y = u.ips()
 y = np.expand_dims(y, axis=3)
+print(X.shape, y.shape)
 
 name = args.name # name of the model
 dropout = args.dropout # dropout to use in the U-Net
