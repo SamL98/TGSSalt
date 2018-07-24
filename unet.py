@@ -1,23 +1,32 @@
 import util as u
 import iou
+from logger import Logger
 
 import os
 from os.path import join, isdir
 
+u.silence()
 from keras.layers import Input, Conv2D, MaxPooling2D, Dropout, Conv2DTranspose, concatenate
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.models import Model
+from keras import backend as K
+from keras.losses import binary_crossentropy as bce
 
 import numpy as np
 import tensorflow as tf
 
 import argparse
 parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
-parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
-parser.add_argument('-d', '--dropout', dest='dropout', type=float, default=0.0)
+parser.add_argument('-n', '--name', dest='name', type=str, default='unet')
+parser.add_argument('-dr', '--dropout', dest='dropout', type=float, default=0.0)
 parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
+parser.add_argument('-jcs', '--just_cs', dest='jcs', action='store_true')
 parser.add_argument('-g', '--gray', dest='gray', action='store_true')
 parser.add_argument('-nm', '--norm', dest='normalize', action='store_true')
+parser.add_argument('-e', '--epochs', dest='epochs', type=int, default=50)
+parser.add_argument('-di', '--dice', dest='dice', action='store_true')
+parser.add_argument('-t', '--test', dest='test', action='store_true')
+parser.add_argument('-f', '--flip', dest='flip', action='store_true')
 args = parser.parse_args()
 
 u.set_gray(args.gray)
@@ -27,6 +36,18 @@ u.set_cs(args.cs)
 # so that it is three-dimensional
 X, y = u.ips()
 y = np.expand_dims(y, axis=3)
+
+if args.test:
+	X, y = X[:100], y[:100]
+
+if args.jcs and X.shape[-1] == 2:
+	X = np.expand_dims(X[:,:,:,1], axis=3)
+
+if args.flip:
+	X = np.append(X, [np.fliplr(x) for x in X], axis=0)
+	y = np.append(y, [np.fliplr(y) for y in y], axis=0)
+
+u.unsilence()
 print(X.shape, y.shape)
 
 name = args.name # name of the model
@@ -89,18 +110,37 @@ Custom Keras metric for evaluating the IoU
 def mean_iou(y_true, y_pred):
 	return tf.py_func(iou.batch_iou, [y_true, y_pred], tf.float32)
 
+def dice_coef(y_true, y_pred, smooth=1):
+	intersection = K.sum(y_true * y_pred, axis=[1,2,3])
+	union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+	return K.mean((2.*intersection + smooth) / (union + smooth), axis=0)
+
+def bce_dice(y_true, y_pred):
+	return 0.01*bce(y_true, y_pred) - dice_coef(y_true, y_pred)
+
+def bce_nodice(y_true, y_pred):
+	return bce(y_true, y_pred)
+
+def true_postive_rate(y_true, y_pred):
+	return K.sum(K.flatten(y_true) * K.flatten(K.round(y_pred)))/K.sum(y_true)
+
 # Callbacks for early stopping and saving
 # model weights if the mean IoU on the validation set improves
+reduce_lr = ReduceLROnPlateau(factor=0.1, patience=5, min_lr=1e-5, verbose=1)
 early_stop = EarlyStopping(patience=5, verbose=1)
 checkpoint = ModelCheckpoint(
 	join('models', name, 'model.h5'),
 	monitor='val_mean_iou', mode='max',
 	verbose=1, save_best_only=True)
 
+loss = bce_nodice
+if args.dice:
+	loss = bce_dice
+
 # Compile the model using binary_crossentropy for the loss function
 # and adam as the optimizer.
 model.compile(
-	loss='binary_crossentropy',
+	loss=loss,
 	optimizer='adam',
 	metrics=[mean_iou])
 
@@ -116,6 +156,8 @@ with open(join('models', name, 'model.json'), 'w') as f:
 # Train the model for 25 epochs using a batch size of 64
 model.fit(
 	X, y,
-	epochs=25, batch_size=64,
+	epochs=args.epochs, batch_size=64,
 	validation_split=0.1, shuffle=True,
-	callbacks=[early_stop, checkpoint])
+	callbacks=[
+		early_stop, checkpoint, reduce_lr, 
+		Logger(join('logs', name, 'metrics.csv'))])

@@ -1,5 +1,22 @@
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 from os.path import join
+import sys
+
+_stdout = sys.stdout
+_stderr = sys.stderr
+
+def silence():
+	sys.stdout = open('/dev/null', 'w')
+	sys.stderr = open('/dev/null', 'w')
+
+def unsilence():
+	sys.stdout = _stdout
+	sys.stderr = _stderr
 
 from scipy.misc import imread
 from skimage.transform import resize
@@ -80,7 +97,9 @@ def _read_img(f):
 	img = resize(imread(f), (128, 128), mode='constant', preserve_range=True)
 
 	# return if the image 2d (i.e. it is a mask)
-	if len(img.shape) == 2: return img
+	if len(img.shape) == 2:
+		if img.max() > 0.0: return img / float(img.max())
+		return img
 
 	# if we want either gray or cumsum-concat images,
 	# get the first color channel (all three are them same)
@@ -98,6 +117,9 @@ def _read_img(f):
 	img_csum = (img - img[b:-b, b:-b].mean()).cumsum(axis=0)
 	img_csum -= img_csum[b:-b, b:-b].mean()
 	img_csum /= max(1e-3, img_csum[b:-b, b:-b].std())
+
+	if img_csum.max() > 0.0 and img_csum.min() < img_csum.max():
+		img_csum = (img_csum - img_csum.min()) / (img_csum.max() - img_csum.min())
 
 	# concatenate the cumsum as a second channel
 	img = img[:,:,np.newaxis]
@@ -143,8 +165,10 @@ def mask_by_id(img_id, train=True):
 """
 Return an array of all the unlabeled test images
 """
-def test_imgs():
-	ids = test_ids() # get the image filenames
+def test_imgs(for_ids=None):
+	if for_ids is None: ids = test_ids()
+	else: ids = for_ids
+
 	d = join(_test_unlab_dir, _img_folder) # get the correct directory
 	return np.array([_read_img(join(d, i)) for i in ids])
 

@@ -2,7 +2,6 @@ import util as u
 
 import os
 from os.path import join
-import sys
 
 import numpy as np
 import pandas as pd
@@ -11,7 +10,18 @@ from skimage.transform import resize
 from skimage.morphology import label
 from keras.models import model_from_json
 
-name = sys.argv[1]
+import argparse
+parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
+parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
+parser.add_argument('-t', '--threshold', dest='tval', type=float, default=0.5)
+parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
+parser.add_argument('-g', '--gray', dest='gray', action='store_true')
+parser.add_argument('-sb', '--sub_name', dest='sub_name', type=str, default='sub')
+args = parser.parse_args()
+
+u.set_gray(args.gray)
+u.set_cs(args.cs)
+name = args.name
 
 with open(join('models', name, 'model.json')) as f:
 	json = f.read()
@@ -41,36 +51,46 @@ Perform RLE encoding on an image
 def rle_encoding(x):
 	return [rle_encoding_for_comp(x)]
 
-# load the unlabeled test images
-X = u.test_imgs()
-ids = u.test_ids()
-ids = [i[:i.index('.')] for i in ids]
-
-# propagate the test images forward through the U-Net
-pred = model.predict(X, batch_size=64)[:,:,:,0]
-
-# the original dimension of the images
-odim = 101
+odim = 101 # the original dimension of the images
 
 rle_ids = []
 rles = []
 
-for i, p in enumerate(pred):
-	if i % 100 == 0:
-		print('%d/%d' % (i, len(X)))
+def encode_batch(pred, ids):
+	global rle_ids, rles, odim
+	for i, p in enumerate(pred):
+		p = resize(p, (odim, odim), mode='constant', preserve_range=True)
+		mask = (p > args.tval).astype(np.uint8)
+		mask_rle = rle_encoding(mask)
+		
+		rles.extend(mask_rle)
+		rle_ids.extend([ids[i]] * len(mask_rle))
 
-	p = resize(p, (odim, odim), mode='constant', preserve_range=True)
-	mask = (p > 0.35).astype(np.uint8)
-	mask_rle = rle_encoding(mask)
-	
-	rles.extend(mask_rle)
-	rle_ids.extend([ids[i]] * len(mask_rle))
+		if len(mask_rle) == 0:
+			rles.extend([[1, 1]])
+			rle_ids.extend([ids[i]])
 
-	if len(mask_rle) == 0:
-		rles.extend([[1, 1]])
-		rle_ids.extend([ids[i]])	
+
+test_ids = u.test_ids()
+batch_size = 64
+i = 0
+
+id_batch = test_ids[i*batch_size : (i+1)*batch_size]
+
+while i*batch_size < len(test_ids)-1:
+	print(i)
+
+	batch = u.test_imgs(for_ids=id_batch)
+	ids = [i[:i.index('.')] for i in id_batch]
+
+	# propagate the test images forward through the U-Net
+	pred = model.predict(batch, batch_size=batch_size)[:,:,:,0]
+	encode_batch(pred, ids)
+
+	i += 1
+	id_batch = test_ids[i*batch_size : (i+1)*batch_size]
 
 df = pd.DataFrame()
 df['id'] = rle_ids
 df['rle_mask'] = pd.Series(rles).apply(lambda x: ' '.join(str(y) for y in x))
-df.to_csv(join('models', name, 'sub.csv'), index=False)
+df.to_csv(join('models', name, args.sub_name+'.csv'), index=False)

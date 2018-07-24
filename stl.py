@@ -1,5 +1,6 @@
 import util as u
 import iou
+from logger import Logger
 
 import os
 from os.path import join, isdir
@@ -17,6 +18,7 @@ parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
 parser.add_argument('-d', '--dropout', dest='dropout', type=float, default=0.0)
 parser.add_argument('-an', '--ae_name', dest='ae_name', type=str, default='sae')
 parser.add_argument('-t', '--train', dest='trainable', action='store_true')
+parser.add_argument('-e', '--epochs', dest='epochs', type=int, default=25)
 args = parser.parse_args()
 
 with open(join('models', args.ae_name, 'model.json')) as f:
@@ -31,6 +33,16 @@ while not last_layer.name == "conv2d_10":
 
 for layer in ae.layers:
 	layer.trainable = args.trainable
+
+num_chan = ae.layers[0].input_shape[-1]
+if num_chan == 3:
+	u.set_gray(False)
+	u.set_cs(False)
+elif num_chan == 2:
+	u.set_cs(True)
+else:
+	u.set_cs(False)
+	u.set_gray(True)
 
 # Load the data and add an axis to the end of y
 # so that it is three-dimensional
@@ -104,6 +116,6 @@ with open(join('models', name, 'model.json'), 'w') as f:
 # Train the model for 25 epochs using a batch size of 64
 model.fit(
 	X, y,
-	epochs=25, batch_size=64,
+	epochs=args.epochs, batch_size=64,
 	validation_split=0.1, shuffle=True,
 	callbacks=[early_stop, checkpoint])
