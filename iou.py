@@ -7,6 +7,9 @@ Return the evaluation metric for a single ground truth, predicted mask pair
 :param pred: the predicted mask
 """
 def iou_metric(y, pred):
+    if np.count_nonzero(y) == np.count_nonzero(pred) and np.count_nonzero(y) == 0:
+        return 1.0
+
     # Get the connected components, thresholding each to 0.5
     labels = label(y > 0.5)
     pred = label(pred > 0.5)

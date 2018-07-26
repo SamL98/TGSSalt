@@ -118,4 +118,4 @@ model.fit(
 	X, y,
 	epochs=args.epochs, batch_size=64,
 	validation_split=0.1, shuffle=True,
-	callbacks=[early_stop, checkpoint])
+	callbacks=[early_stop, checkpoint, Logger(join('logs', name, 'metrics.csv'))])

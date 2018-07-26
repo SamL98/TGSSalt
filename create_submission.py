@@ -16,7 +16,7 @@ parser.add_argument('-n', '--name', dest='name', type=str, default='u-net')
 parser.add_argument('-t', '--threshold', dest='tval', type=float, default=0.5)
 parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
 parser.add_argument('-g', '--gray', dest='gray', action='store_true')
-parser.add_argument('-sb', '--sub_name', dest='sub_name', type=str, default='sub')
+parser.add_argument('-sn', '--sub_name', dest='sub_name', type=str, default='sub')
 args = parser.parse_args()
 
 u.set_gray(args.gray)
@@ -27,6 +27,15 @@ with open(join('models', name, 'model.json')) as f:
 	json = f.read()
 model = model_from_json(json)
 model.load_weights(join('models', name, 'model.h5'))
+
+num_chan = model.layers[0].input_shape[-1]
+if num_chan == 3:
+	u.set_gray(False)
+	u.set_cs(False)
+elif num_chan == 2:
+	u.set_cs(True)
+else:
+	u.set_cs(False)
 
 """
 Perform RLE on a connected component of a mask
@@ -60,7 +69,11 @@ def encode_batch(pred, ids):
 	global rle_ids, rles, odim
 	for i, p in enumerate(pred):
 		p = resize(p, (odim, odim), mode='constant', preserve_range=True)
+		#b = (128-101)//2
+		#x = x[b:-b, b:-b]
+
 		mask = (p > args.tval).astype(np.uint8)
+		mask = u.postprocessing(mask)
 		mask_rle = rle_encoding(mask)
 		
 		rles.extend(mask_rle)
@@ -78,10 +91,10 @@ i = 0
 id_batch = test_ids[i*batch_size : (i+1)*batch_size]
 
 while i*batch_size < len(test_ids)-1:
-	print(i)
-
 	batch = u.test_imgs(for_ids=id_batch)
 	ids = [i[:i.index('.')] for i in id_batch]
+
+	print(i, batch.shape)
 
 	# propagate the test images forward through the U-Net
 	pred = model.predict(batch, batch_size=batch_size)[:,:,:,0]

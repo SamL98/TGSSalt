@@ -6,8 +6,8 @@ import os
 from os.path import join, isdir
 
 #u.silence()
+from keras.applications import VGG19
 from keras.layers import Input, Conv2D, MaxPooling2D, Dropout, Conv2DTranspose, concatenate
-from keras.layers import RepeatVector, Reshape
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.models import Model
 from keras import backend as K
@@ -21,54 +21,29 @@ def get_args():
 	parser = argparse.ArgumentParser('U-Net for TGS Salt Identification')
 	parser.add_argument('-n', '--name', dest='name', type=str, default='unet')
 	parser.add_argument('-dr', '--dropout', dest='dropout', type=float, default=0.0)
-	parser.add_argument('-cs', '--cumsum', dest='cs', action='store_true')
-	parser.add_argument('-jcs', '--just_cs', dest='jcs', action='store_true')
-	parser.add_argument('-g', '--gray', dest='gray', action='store_true')
+	parser.add_argument('-nm', '--norm', dest='normalize', action='store_true')
 	parser.add_argument('-e', '--epochs', dest='epochs', type=int, default=50)
 	parser.add_argument('-di', '--dice', dest='dice', action='store_true')
 	parser.add_argument('-t', '--test', dest='test', action='store_true')
 	parser.add_argument('-f', '--flip', dest='flip', action='store_true')
 	parser.add_argument('-de', '--denoise', dest='denoise', action='store_true')
-	parser.add_argument('-dp', '--depth', dest='depth', action='store_true')
-	parser.add_argument('-pp', '--prepro', dest='prepro', action='store_true')
+	parser.add_argument('-nf', '--num_freeze', dest='num_freeze', type=int, default=5)
 	return parser.parse_args()
 
 args = get_args()
 
-u.set_gray(args.gray)
-u.set_cs(args.cs)
-u.set_depth(args.depth)
-
 # Load the data and add an axis to the end of y
 # so that it is three-dimensional
-if args.depth:
-	X_w_depths, y = u.ips()
-	X, depths = X_w_depths
-	
-	depths = depths.astype(np.float32)
-	mu, sigma = np.mean(depths), np.std(depths)
-	depths = (depths - mu) / sigma
-else:
-	X, y = u.ips()
-
+u.set_gray(False)
+X, y = u.ips()
 y = np.expand_dims(y, axis=3)
 
 if args.test:
 	X, y = X[:100], y[:100]
-	if args.depth: depths = depths[:100]
-
-if args.jcs and X.shape[-1] == 2:
-	X = np.expand_dims(X[:,:,:,1], axis=3)
-
-if args.prepro:
-	X = np.array([u.preprocess((x*255).astype(np.uint8))/255. for x in X])
 
 if args.flip:
 	X = np.append(X, [np.fliplr(x) for x in X], axis=0)
 	y = np.append(y, [np.fliplr(y) for y in y], axis=0)
-
-	if args.depth:
-		depths = np.append(depths, depths)
 
 if len(X.shape) == 3:
 	X = np.expand_dims(X, axis=3)
@@ -84,63 +59,45 @@ dropout = args.dropout # dropout to use in the U-Net
 
 # Construct the U-Net
 def get_model():
-	inputs = Input(X[0].shape)
-	model_inputs = [inputs]
-	
-	if args.depth:
-		depths_input = Input((1,))
-		model_inputs.append(depths_input)
+	vgg = VGG19(weights='imagenet', include_top=False, input_shape=X[0].shape)
 
-	c1 = Conv2D(8, (3, 3), activation='relu', padding='same') (inputs)
-	c1 = Conv2D(8, (3, 3), activation='relu', padding='same') (c1)
-	p1 = MaxPooling2D((2, 2)) (c1)
+	for layer in vgg.layers[:args.num_freeze]:
+		layer.trainable = False
 
-	c2 = Conv2D(16, (3, 3), activation='relu', padding='same') (p1)
-	c2 = Conv2D(16, (3, 3), activation='relu', padding='same') (c2)
-	p2 = MaxPooling2D((2, 2)) (c2)
+	inputs = vgg.output
 
-	c3 = Conv2D(32, (3, 3), activation='relu', padding='same') (p2)
-	c3 = Conv2D(32, (3, 3), activation='relu', padding='same') (c3)
-	p3 = MaxPooling2D((2, 2)) (c3)
-	d3 = Dropout(dropout) (p3)
-
-	c4 = Conv2D(64, (3, 3), activation='relu', padding='same') (d3)
-	c4 = Conv2D(64, (3, 3), activation='relu', padding='same') (c4)
-	p4 = MaxPooling2D(pool_size=(2, 2)) (c4)
-	d4 = Dropout(dropout) (p4)
-
-	if args.depth:
-		f_repeat = RepeatVector(64) (depths_input)
-		f_conv = Reshape((8, 8, 1)) (f_repeat)
-		d4 = concatenate([d4, f_conv], -1)
-
-	c5 = Conv2D(128, (3, 3), activation='relu', padding='same') (d4)
-	c5 = Conv2D(128, (3, 3), activation='relu', padding='same') (c5)
-
-	u6 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same') (c5)
-	u6 = concatenate([u6, c4])
-	c6 = Conv2D(64, (3, 3), activation='relu', padding='same') (u6)
-	c6 = Conv2D(64, (3, 3), activation='relu', padding='same') (c6)
+	u6 = Conv2DTranspose(512, (2, 2), strides=(2, 2), padding='same') (inputs)
+	u6 = concatenate([u6, vgg.layers[-2].output])
+	c6 = Conv2D(512, (3, 3), activation='relu', padding='same') (u6)
+	c6 = Conv2D(512, (3, 3), activation='relu', padding='same') (c6)
+	c6 = Conv2D(512, (3, 3), activation='relu', padding='same') (c6)
 	d6 = Dropout(dropout) (c6)
 
-	u7 = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same') (d6)
-	u7 = concatenate([u7, c3])
-	c7 = Conv2D(32, (3, 3), activation='relu', padding='same') (u7)
-	c7 = Conv2D(32, (3, 3), activation='relu', padding='same') (c7)
+	u7 = Conv2DTranspose(512, (2, 2), strides=(2, 2), padding='same') (d6)
+	u7 = concatenate([u7, vgg.layers[-7].output])
+	c7 = Conv2D(512, (3, 3), activation='relu', padding='same') (u7)
+	c7 = Conv2D(512, (3, 3), activation='relu', padding='same') (c7)
+	c7 = Conv2D(512, (3, 3), activation='relu', padding='same') (c7)
 	d7 = Dropout(dropout) (c7)
 
-	u8 = Conv2DTranspose(16, (2, 2), strides=(2, 2), padding='same') (d7)
-	u8 = concatenate([u8, c2])
-	c8 = Conv2D(16, (3, 3), activation='relu', padding='same') (u8)
-	c8 = Conv2D(16, (3, 3), activation='relu', padding='same') (c8)
+	u8 = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same') (d7)
+	u8 = concatenate([u8, vgg.layers[-12].output])
+	c8 = Conv2D(256, (3, 3), activation='relu', padding='same') (u8)
+	c8 = Conv2D(256, (3, 3), activation='relu', padding='same') (c8)
+	c8 = Conv2D(256, (3, 3), activation='relu', padding='same') (c8)
 
-	u9 = Conv2DTranspose(8, (2, 2), strides=(2, 2), padding='same') (c8)
-	u9 = concatenate([u9, c1], axis=3)
-	c9 = Conv2D(8, (3, 3), activation='relu', padding='same') (u9)
-	c9 = Conv2D(8, (3, 3), activation='relu', padding='same') (c9)
+	u9 = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same') (c8)
+	u9 = concatenate([u9, vgg.layers[-17].output], axis=3)
+	c9 = Conv2D(128, (3, 3), activation='relu', padding='same') (u9)
+	c9 = Conv2D(128, (3, 3), activation='relu', padding='same') (c9)
 
-	outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)
-	model = Model(inputs=model_inputs, outputs=[outputs])
+	u10 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same') (c9)
+	u10 = concatenate([u10, vgg.layers[-20].output], axis=3)
+	c10 = Conv2D(64, (3, 3), activation='relu', padding='same') (u10)
+	c10 = Conv2D(64, (3, 3), activation='relu', padding='same') (c10)
+
+	outputs = Conv2D(1, (1, 1), activation='sigmoid') (c10)
+	model = Model(inputs=[vgg.input], outputs=[outputs])
 	return model
 
 model = get_model()
@@ -159,7 +116,7 @@ def dice_coef(y_true, y_pred, smooth=1):
 	return K.mean((2.*intersection + smooth) / (union + smooth), axis=0)
 
 def bce_dice(y_true, y_pred):
-	return 0.01*bce(y_true, y_pred) - K.log(dice_coef(y_true, y_pred))
+	return 0.01*bce(y_true, y_pred) - dice_coef(y_true, y_pred)
 
 def bce_nodice(y_true, y_pred):
 	return bce(y_true, y_pred)
@@ -196,13 +153,9 @@ if not isdir(join('models', name)):
 with open(join('models', name, 'model.json'), 'w') as f:
 	f.write(model.to_json())
 
-feed_dict = {'input_1': X}
-if args.depth:
-	feed_dict['input_2'] = depths
-
 # Train the model for 25 epochs using a batch size of 64
 model.fit(
-	feed_dict, y,
+	X, y,
 	epochs=args.epochs, batch_size=64,
 	validation_split=0.1, shuffle=True,
 	callbacks=[
